@@ -456,10 +456,6 @@ program
       assertWritable(config);
       const client = new ConfluenceClient(config);
 
-      // Get parent page info to get space key
-      const parentInfo = await client.getPageInfo(parentId);
-      const spaceKey = parentInfo.space.key;
-
       let content = '';
 
       if (options.file) {
@@ -474,7 +470,13 @@ program
         throw new Error('Either --file or --content option is required');
       }
 
-      const result = await client.createChildPage(title, spaceKey, parentId, content, options.format, options.type);
+      const isAdf = (options.format || '').toLowerCase() === 'adf';
+      const parentInfo = isAdf
+        ? await client.getPageInfoV2(parentId)
+        : await client.getPageInfo(parentId);
+      const result = isAdf
+        ? await client.createChildPageFromParent(title, parentId, content, options.format, options.type)
+        : await client.createChildPage(title, parentInfo.space.key, parentId, content, options.format, options.type);
 
       const label = options.type === 'folder' ? 'Folder' : 'Child page';
       console.log(chalk.green(`✅ ${label} created successfully!`));
@@ -1587,7 +1589,9 @@ program
       const formatExt = { markdown: 'md', html: 'html', text: 'txt', adf: 'json' };
       const contentExt = formatExt[format] || 'txt';
 
-      const pageInfo = await client.getPageInfo(pageId);
+      const pageInfo = format === 'adf'
+        ? await client.getPageInfoV2(pageId)
+        : await client.getPageInfo(pageId);
       const content = await client.readPage(
         pageId,
         format,
@@ -1724,11 +1728,15 @@ async function exportRecursive(client, fs, path, pageId, options) {
   const baseDir = path.resolve(options.dest || '.');
 
   // 1. Fetch root page
-  const rootPage = await client.getPageInfo(pageId);
+  const rootPage = format === 'adf'
+    ? await client.getPageInfoV2(pageId)
+    : await client.getPageInfo(pageId);
   console.log(`Fetching descendants of "${chalk.blue(rootPage.title)}"...`);
 
   // 2. Fetch all descendants
-  const descendants = await client.getAllDescendantPages(pageId, maxDepth);
+  const descendants = format === 'adf'
+    ? await client.getAllDescendantPagesV2(pageId, maxDepth)
+    : await client.getAllDescendantPages(pageId, maxDepth);
 
   // 3. Filter by exclude patterns
   const allPages = [{ id: rootPage.id, title: rootPage.title, parentId: null }];

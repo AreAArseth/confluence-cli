@@ -25,9 +25,12 @@ describe('CLI metadata and storage output', () => {
     const client = {
       readPage: jest.fn(),
       getPageInfo: jest.fn(),
+      getPageInfoV2: jest.fn(),
       extractPageId: jest.fn(async (pageId) => String(pageId)),
+      createChildPageFromParent: jest.fn(),
       getChildPages: jest.fn(),
       getAllDescendantPages: jest.fn(),
+      getAllDescendantPagesV2: jest.fn(),
       buildUrl: jest.fn((value) => value),
       webUrlPrefix: '/wiki',
       ...clientOverrides
@@ -212,6 +215,26 @@ describe('CLI metadata and storage output', () => {
     await runCli(program, ['update', '123', '--content', '{"type":"doc","version":1,"content":[]}', '--format', 'adf']);
 
     expect(client.updatePage).toHaveBeenCalledWith('123', undefined, '{"type":"doc","version":1,"content":[]}', 'adf');
+  });
+
+  test('create-child --format adf uses REST v2 parent flow', async () => {
+    const { program, client } = await loadCli({
+      getPageInfoV2: jest.fn(async () => ({ id: 'parent-1', title: 'Parent Page', spaceId: 'space-1' })),
+      createChildPageFromParent: jest.fn(async () => ({
+        id: 'child-1',
+        title: 'ADF Child',
+        spaceId: 'space-1',
+        version: { number: 1 },
+        _links: { webui: '/spaces/TEST/pages/child-1' }
+      }))
+    });
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    await runCli(program, ['create-child', 'ADF Child', 'parent-1', '--content', '{"type":"doc","version":1,"content":[]}', '--format', 'adf']);
+
+    expect(client.getPageInfoV2).toHaveBeenCalledWith('parent-1');
+    expect(client.getPageInfo).not.toHaveBeenCalled();
+    expect(client.createChildPageFromParent).toHaveBeenCalledWith('ADF Child', 'parent-1', '{"type":"doc","version":1,"content":[]}', 'adf', 'page');
   });
 
   test('children --format json returns structured direct children', async () => {

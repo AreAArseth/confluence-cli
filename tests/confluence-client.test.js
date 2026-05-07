@@ -1662,6 +1662,76 @@ describe('ConfluenceClient', () => {
       mock.restore();
     });
 
+    test('createChildPageFromParent should use REST v2 parent spaceId for ADF', async () => {
+      const cloudClient = new ConfluenceClient({
+        domain: 'test.atlassian.net',
+        token: 'test-token',
+        apiPath: '/wiki/rest/api'
+      });
+      const mock = new MockAdapter(cloudClient.client);
+      const adf = { type: 'doc', version: 1, content: [] };
+      mock.onGet('https://test.atlassian.net/wiki/api/v2/pages/100').reply(200, {
+        id: '100',
+        title: 'Parent',
+        status: 'current',
+        spaceId: 'space-1',
+        version: { number: 3 }
+      });
+      mock.onPost('https://test.atlassian.net/wiki/api/v2/pages').reply(config => {
+        const requestData = JSON.parse(config.data);
+        expect(requestData).toEqual({
+          spaceId: 'space-1',
+          status: 'current',
+          title: 'Child From Parent',
+          parentId: '100',
+          body: {
+            representation: 'atlas_doc_format',
+            value: JSON.stringify(adf)
+          }
+        });
+        return [200, { id: 'child-1', title: 'Child From Parent', spaceId: 'space-1', version: { number: 1 } }];
+      });
+
+      const result = await cloudClient.createChildPageFromParent('Child From Parent', '100', JSON.stringify(adf), 'adf');
+      expect(result.id).toBe('child-1');
+
+      mock.restore();
+    });
+
+    test('getAllDescendantPagesV2 should traverse REST v2 child pages', async () => {
+      const cloudClient = new ConfluenceClient({
+        domain: 'test.atlassian.net',
+        token: 'test-token',
+        apiPath: '/wiki/rest/api'
+      });
+      const mock = new MockAdapter(cloudClient.client);
+      mock.onGet('https://test.atlassian.net/wiki/api/v2/pages/root/children').reply(200, {
+        results: [
+          { id: 'child-1', title: 'Child 1', parentId: 'root', spaceId: 'space-1', status: 'current' }
+        ],
+        _links: {}
+      });
+      mock.onGet('https://test.atlassian.net/wiki/api/v2/pages/child-1/children').reply(200, {
+        results: [
+          { id: 'grandchild-1', title: 'Grandchild 1', parentId: 'child-1', spaceId: 'space-1', status: 'current' }
+        ],
+        _links: {}
+      });
+      mock.onGet('https://test.atlassian.net/wiki/api/v2/pages/grandchild-1/children').reply(200, {
+        results: [],
+        _links: {}
+      });
+
+      const descendants = await cloudClient.getAllDescendantPagesV2('root');
+
+      expect(descendants.map(page => ({ id: page.id, parentId: page.parentId, depth: page.depth }))).toEqual([
+        { id: 'child-1', parentId: 'root', depth: 1 },
+        { id: 'grandchild-1', parentId: 'child-1', depth: 2 }
+      ]);
+
+      mock.restore();
+    });
+
     test('updatePage should send raw ADF through REST v2 with incremented version', async () => {
       const cloudClient = new ConfluenceClient({
         domain: 'test.atlassian.net',
@@ -1694,7 +1764,7 @@ describe('ConfluenceClient', () => {
         return [200, { id: '123', title: 'New title', version: { number: 5 } }];
       });
 
-      await cloudClient.updatePage('123', 'New title', JSON.stringify(adf), 'adf');
+      await cloudClient.updatePage('https://test.atlassian.net/wiki/spaces/TEST/pages/123/Old+title', 'New title', JSON.stringify(adf), 'adf');
 
       mock.restore();
     });

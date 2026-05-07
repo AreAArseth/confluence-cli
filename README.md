@@ -325,6 +325,7 @@ For raw ADF page operations on Cloud, the minimum scopes are:
 |-------|-------------|
 | `read:page:confluence` | Reading pages in ADF format |
 | `write:page:confluence` | Creating and updating pages in ADF format |
+| `delete:page:confluence` | Deleting temporary or test pages through REST v2 |
 | `read:space:confluence` | Resolving a space key to the REST v2 space ID |
 | `offline_access` | Refreshing OAuth access tokens |
 

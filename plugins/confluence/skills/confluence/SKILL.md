@@ -151,7 +151,7 @@ confluence oauth-login --domain "nordicsemi.atlassian.net" --client-id "$CONFLUE
 confluence oauth-logout
 ```
 
-OAuth Cloud ADF operations need `read:page:confluence`, `write:page:confluence`, `read:space:confluence`, and `offline_access`.
+OAuth Cloud ADF operations need `read:page:confluence`, `write:page:confluence`, `delete:page:confluence`, `read:space:confluence`, and `offline_access`.
 
 ---
 

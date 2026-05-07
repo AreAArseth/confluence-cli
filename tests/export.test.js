@@ -47,8 +47,10 @@ function createMockFs(files = {}) {
 function createMockClient(overrides = {}) {
   return {
     getPageInfo: jest.fn(async (id) => ({ id, title: `Page ${id}` })),
+    getPageInfoV2: jest.fn(async (id) => ({ id, title: `Page ${id}` })),
     readPage: jest.fn(async () => '# content'),
     getAllDescendantPages: jest.fn(async () => []),
+    getAllDescendantPagesV2: jest.fn(async () => []),
     getAllAttachments: jest.fn(async () => []),
     downloadAttachment: jest.fn(async () => {
       const { PassThrough } = require('stream');
@@ -381,8 +383,12 @@ describe('exportRecursive', () => {
       skipAttachments: true,
     });
 
-    const contentPath = path.join(path.resolve('/tmp/out'), 'Root', 'page.json');
+    const contentPath = path.join(path.resolve('/tmp/out'), 'Page 1', 'page.json');
     expect(fs._store[contentPath]).toBe('{"type":"doc","version":1,"content":[]}');
+    expect(client.getPageInfoV2).toHaveBeenCalledWith('1');
+    expect(client.getPageInfo).not.toHaveBeenCalled();
+    expect(client.getAllDescendantPagesV2).toHaveBeenCalledWith('1', 10);
+    expect(client.getAllDescendantPages).not.toHaveBeenCalled();
     expect(client.readPage).toHaveBeenCalledWith('1', 'adf', {});
 
     consoleSpy.mockRestore();
