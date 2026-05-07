@@ -367,4 +367,24 @@ describe('exportRecursive', () => {
 
     consoleSpy.mockRestore();
   });
+
+  test('format adf writes page.json by default', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    client.getAllDescendantPages.mockResolvedValue([]);
+    client.buildPageTree.mockReturnValue([]);
+    client.readPage.mockResolvedValue('{"type":"doc","version":1,"content":[]}');
+
+    await exportRecursive(client, fs, path, '1', {
+      dest: '/tmp/out',
+      format: 'adf',
+      delayMs: 0,
+      skipAttachments: true,
+    });
+
+    const contentPath = path.join(path.resolve('/tmp/out'), 'Root', 'page.json');
+    expect(fs._store[contentPath]).toBe('{"type":"doc","version":1,"content":[]}');
+    expect(client.readPage).toHaveBeenCalledWith('1', 'adf', {});
+
+    consoleSpy.mockRestore();
+  });
 });

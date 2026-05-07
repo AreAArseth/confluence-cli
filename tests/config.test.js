@@ -9,6 +9,11 @@ const ENV_KEYS = [
   'CONFLUENCE_PROTOCOL', 'CONFLUENCE_FORCE_CLOUD',
   'CONFLUENCE_LINK_STYLE',
   'CONFLUENCE_COOKIE',
+  'CONFLUENCE_OAUTH_CLIENT_ID', 'CONFLUENCE_OAUTH_CLIENT_SECRET',
+  'CONFLUENCE_OAUTH_ACCESS_TOKEN', 'CONFLUENCE_OAUTH_REFRESH_TOKEN',
+  'CONFLUENCE_OAUTH_EXPIRES_AT', 'CONFLUENCE_CLOUD_ID',
+  'CONFLUENCE_OAUTH_CLOUD_ID', 'CONFLUENCE_OAUTH_SITE_URL',
+  'CONFLUENCE_OAUTH_SCOPES',
   'CONFLUENCE_TLS_CA_CERT', 'CONFLUENCE_TLS_CLIENT_CERT', 'CONFLUENCE_TLS_CLIENT_KEY'
 ];
 
@@ -275,6 +280,54 @@ describe('getConfig env var aliases', () => {
       expect(() => getConfig()).toThrow('process.exit called');
       expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/client certificate and client key/));
       expect(errorSpy).not.toHaveBeenCalledWith(expect.stringMatching(/No configuration found/));
+    } finally {
+      exitSpy.mockRestore();
+      errorSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+  });
+
+  test('CONFLUENCE_AUTH_TYPE=oauth resolves OAuth env configuration', () => {
+    process.env.CONFLUENCE_DOMAIN = 'nordicsemi.atlassian.net';
+    process.env.CONFLUENCE_AUTH_TYPE = 'oauth';
+    process.env.CONFLUENCE_OAUTH_ACCESS_TOKEN = 'access-token';
+    process.env.CONFLUENCE_OAUTH_REFRESH_TOKEN = 'refresh-token';
+    process.env.CONFLUENCE_OAUTH_CLIENT_ID = 'client-id';
+    process.env.CONFLUENCE_OAUTH_CLIENT_SECRET = 'client-secret';
+    process.env.CONFLUENCE_CLOUD_ID = 'cloud-id';
+    process.env.CONFLUENCE_OAUTH_EXPIRES_AT = '1893456000000';
+    process.env.CONFLUENCE_OAUTH_SITE_URL = 'https://nordicsemi.atlassian.net';
+    process.env.CONFLUENCE_OAUTH_SCOPES = 'read:page:confluence write:page:confluence';
+
+    const config = getConfig();
+    expect(config.authType).toBe('oauth');
+    expect(config.oauth).toMatchObject({
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      clientId: 'client-id',
+      clientSecret: 'client-secret',
+      cloudId: 'cloud-id',
+      expiresAt: 1893456000000,
+      siteUrl: 'https://nordicsemi.atlassian.net',
+      scopes: ['read:page:confluence', 'write:page:confluence']
+    });
+  });
+
+  test('CONFLUENCE_AUTH_TYPE=oauth without Cloud ID exits with actionable error', () => {
+    process.env.CONFLUENCE_DOMAIN = 'nordicsemi.atlassian.net';
+    process.env.CONFLUENCE_AUTH_TYPE = 'oauth';
+    process.env.CONFLUENCE_OAUTH_ACCESS_TOKEN = 'access-token';
+
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    try {
+      expect(() => getConfig()).toThrow('process.exit called');
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/Cloud ID/));
+      expect(logSpy).toHaveBeenCalledWith(expect.stringMatching(/CONFLUENCE_CLOUD_ID/));
     } finally {
       exitSpy.mockRestore();
       errorSpy.mockRestore();

@@ -4,7 +4,20 @@ const { program } = require('commander');
 const chalk = require('chalk');
 const inquirer = require('inquirer');
 const ConfluenceClient = require('../lib/confluence-client');
-const { getConfig, initConfig, listProfiles, setActiveProfile, deleteProfile, isValidProfileName } = require('../lib/config');
+const { getConfig, initConfig, saveOAuthConfig, clearOAuthTokens, listProfiles, setActiveProfile, deleteProfile, isValidProfileName } = require('../lib/config');
+const {
+  DEFAULT_OAUTH_SCOPES,
+  parseScopes,
+  siteDomain,
+  randomState,
+  buildAuthorizeUrl,
+  exchangeAuthorizationCode,
+  getAccessibleResources,
+  findResourceForSite,
+  openBrowser,
+  waitForOAuthCallback,
+  codeFromCallbackUrl
+} = require('../lib/oauth');
 const Analytics = require('../lib/analytics');
 const pkg = require('../package.json');
 
@@ -60,10 +73,18 @@ program
   .option('-d, --domain <domain>', 'Confluence domain')
   .option('--protocol <protocol>', 'Protocol (http or https)')
   .option('-p, --api-path <path>', 'REST API path')
-  .option('-a, --auth-type <type>', 'Authentication type (basic, bearer, mtls, or cookie)')
+  .option('-a, --auth-type <type>', 'Authentication type (basic, bearer, oauth, mtls, or cookie)')
   .option('-e, --email <email>', 'Email or username for basic auth')
   .option('-t, --token <token>', 'API token')
   .option('-c, --cookie <cookie>', 'Cookie for Enterprise SSO authentication (e.g., "JSESSIONID=...")')
+  .option('--oauth-client-id <id>', 'OAuth 2.0 client ID')
+  .option('--oauth-client-secret <secret>', 'OAuth 2.0 client secret')
+  .option('--oauth-access-token <token>', 'OAuth 2.0 access token')
+  .option('--oauth-refresh-token <token>', 'OAuth 2.0 refresh token')
+  .option('--oauth-expires-at <ms>', 'OAuth access token expiry time in epoch milliseconds')
+  .option('--oauth-cloud-id <id>', 'Atlassian Cloud ID for Confluence')
+  .option('--oauth-site-url <url>', 'Atlassian Cloud site URL')
+  .option('--oauth-scopes <scopes>', 'OAuth scopes (space or comma separated)')
   .option('--tls-ca-cert <path>', 'CA certificate for mTLS connections')
   .option('--tls-client-cert <path>', 'Client certificate for mTLS connections')
   .option('--tls-client-key <path>', 'Client private key for mTLS connections')
@@ -73,11 +94,139 @@ program
     await initConfig({ ...options, profile });
   });
 
+program
+  .command('oauth-login')
+  .description('Authenticate to Confluence Cloud with Atlassian OAuth 2.0 (3LO)')
+  .option('-d, --domain <domain>', 'Target Atlassian site domain (e.g., nordicsemi.atlassian.net)')
+  .option('--client-id <id>', 'OAuth 2.0 client ID')
+  .option('--client-secret <secret>', 'OAuth 2.0 client secret')
+  .option('-p, --api-path <path>', 'REST API path for the selected Cloud site', '/wiki/rest/api')
+  .option('--redirect-uri <uri>', 'OAuth redirect URI', 'http://127.0.0.1:8765/callback')
+  .option('--scopes <scopes>', 'OAuth scopes (space or comma separated)', DEFAULT_OAUTH_SCOPES.join(' '))
+  .option('--callback-url <url>', 'Paste a full OAuth callback URL instead of using the local callback server')
+  .option('--code <code>', 'Use an authorization code directly instead of opening a browser')
+  .option('--state <state>', 'Expected OAuth state when using --callback-url')
+  .option('--no-open', 'Print the authorization URL without opening a browser')
+  .action(async (options) => {
+    const analytics = new Analytics();
+    try {
+      const answers = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'domain',
+          message: 'Target Atlassian site domain:',
+          default: 'nordicsemi.atlassian.net',
+          when: () => !options.domain,
+          validate: (value) => value && value.trim() ? true : 'Domain is required'
+        },
+        {
+          type: 'input',
+          name: 'clientId',
+          message: 'OAuth client ID:',
+          when: () => !options.clientId && !process.env.CONFLUENCE_OAUTH_CLIENT_ID,
+          validate: (value) => value && value.trim() ? true : 'OAuth client ID is required'
+        },
+        {
+          type: 'password',
+          name: 'clientSecret',
+          message: 'OAuth client secret:',
+          when: () => !options.clientSecret && !process.env.CONFLUENCE_OAUTH_CLIENT_SECRET,
+          validate: (value) => value && value.trim() ? true : 'OAuth client secret is required'
+        }
+      ]);
+
+      const domain = options.domain || answers.domain;
+      const clientId = options.clientId || process.env.CONFLUENCE_OAUTH_CLIENT_ID || answers.clientId;
+      const clientSecret = options.clientSecret || process.env.CONFLUENCE_OAUTH_CLIENT_SECRET || answers.clientSecret;
+      const scopes = parseScopes(options.scopes);
+      const state = options.state || randomState();
+      const authorizationUrl = buildAuthorizeUrl({
+        clientId,
+        redirectUri: options.redirectUri,
+        scopes,
+        state
+      });
+
+      let code = options.code;
+      if (options.callbackUrl) {
+        if (!options.state) {
+          throw new Error('--state is required when using --callback-url so the OAuth callback can be validated.');
+        }
+        code = codeFromCallbackUrl(options.callbackUrl, state);
+      }
+      if (!code) {
+        console.log(chalk.blue('Open this URL to authorize confluence-cli:'));
+        console.log(authorizationUrl);
+        const callbackPromise = waitForOAuthCallback(options.redirectUri, state);
+        if (options.open) {
+          openBrowser(authorizationUrl);
+        }
+        const callback = await callbackPromise;
+        code = callback.code;
+      }
+
+      const tokenData = await exchangeAuthorizationCode({
+        clientId,
+        clientSecret,
+        code,
+        redirectUri: options.redirectUri
+      });
+      const expiresAt = Date.now() + (Number(tokenData.expires_in || 3600) * 1000);
+      const resources = await getAccessibleResources(tokenData.access_token);
+      const resource = findResourceForSite(resources, domain);
+      if (!resource) {
+        throw new Error(`OAuth grant does not include access to https://${siteDomain(domain)}.`);
+      }
+
+      const siteUrl = resource.url;
+      const profile = getProfileName();
+      saveOAuthConfig({
+        domain: siteDomain(siteUrl),
+        protocol: 'https',
+        apiPath: options.apiPath,
+        oauth: {
+          clientId,
+          clientSecret,
+          accessToken: tokenData.access_token,
+          refreshToken: tokenData.refresh_token,
+          expiresAt,
+          cloudId: resource.id,
+          siteUrl,
+          scopes
+        }
+      }, profile);
+
+      console.log(chalk.green('OAuth login saved successfully.'));
+      console.log(`Site: ${chalk.blue(siteUrl)}`);
+      console.log(`Cloud ID: ${chalk.blue(resource.id)}`);
+      analytics.track('oauth_login', true);
+    } catch (error) {
+      handleCommandError(analytics, 'oauth_login', error);
+    }
+  });
+
+program
+  .command('oauth-logout')
+  .description('Remove stored OAuth access and refresh tokens from the active profile')
+  .action(() => {
+    const analytics = new Analytics();
+    try {
+      const profile = getProfileName();
+      if (!clearOAuthTokens(profile)) {
+        throw new Error('No stored OAuth tokens were found for this profile.');
+      }
+      console.log(chalk.green('OAuth tokens removed.'));
+      analytics.track('oauth_logout', true);
+    } catch (error) {
+      handleCommandError(analytics, 'oauth_logout', error);
+    }
+  });
+
 // Read command
 program
   .command('read <pageId>')
   .description('Read a Confluence page by ID or URL')
-  .option('-f, --format <format>', 'Output format (html, text, storage, markdown)', 'text')
+  .option('-f, --format <format>', 'Output format (html, text, storage, markdown, adf)', 'text')
   .action(async (pageId, options) => {
     const analytics = new Analytics();
     try {
@@ -238,7 +387,7 @@ program
   .description('Create a new Confluence page or folder')
   .option('-f, --file <file>', 'Read content from file')
   .option('-c, --content <content>', 'Page content as string')
-  .option('--format <format>', 'Content format (storage, html, markdown)', 'storage')
+  .option('--format <format>', 'Content format (storage, html, markdown, adf)', 'storage')
   .option('--type <type>', 'Content type (page, folder)', 'page')
   .action(async (title, spaceKey, options) => {
     const analytics = new Analytics();
@@ -272,8 +421,14 @@ program
       console.log(chalk.green(`✅ ${label} created successfully!`));
       console.log(`Title: ${chalk.blue(result.title)}`);
       console.log(`ID: ${chalk.blue(result.id)}`);
-      console.log(`Space: ${chalk.blue(result.space.name)} (${result.space.key})`);
-      console.log(`URL: ${chalk.gray(`${client.buildUrl(`${client.webUrlPrefix}${result._links.webui}`)}`)}`);
+      if (result.space?.name || result.space?.key || result.spaceId) {
+        const spaceName = result.space?.name || result.spaceId;
+        const spaceKey = result.space?.key || result.spaceId;
+        console.log(`Space: ${chalk.blue(spaceName)} (${spaceKey})`);
+      }
+      if (result._links?.webui) {
+        console.log(`URL: ${chalk.gray(`${client.buildUrl(`${client.webUrlPrefix}${result._links.webui}`)}`)}`);
+      }
 
       analytics.track('create', true);
     } catch (error) {
@@ -287,7 +442,7 @@ program
   .description('Create a new Confluence page or folder as a child of another page')
   .option('-f, --file <file>', 'Read content from file')
   .option('-c, --content <content>', 'Page content as string')
-  .option('--format <format>', 'Content format (storage, html, markdown)', 'storage')
+  .option('--format <format>', 'Content format (storage, html, markdown, adf)', 'storage')
   .option('--type <type>', 'Content type (page, folder)', 'page')
   .action(async (title, parentId, options) => {
     const analytics = new Analytics();
@@ -326,8 +481,14 @@ program
       console.log(`Title: ${chalk.blue(result.title)}`);
       console.log(`ID: ${chalk.blue(result.id)}`);
       console.log(`Parent: ${chalk.blue(parentInfo.title)} (${parentId})`);
-      console.log(`Space: ${chalk.blue(result.space.name)} (${result.space.key})`);
-      console.log(`URL: ${chalk.gray(`${client.buildUrl(`${client.webUrlPrefix}${result._links.webui}`)}`)}`);
+      if (result.space?.name || result.space?.key || result.spaceId) {
+        const spaceName = result.space?.name || result.spaceId;
+        const spaceKey = result.space?.key || result.spaceId;
+        console.log(`Space: ${chalk.blue(spaceName)} (${spaceKey})`);
+      }
+      if (result._links?.webui) {
+        console.log(`URL: ${chalk.gray(`${client.buildUrl(`${client.webUrlPrefix}${result._links.webui}`)}`)}`);
+      }
 
       analytics.track('create_child', true);
     } catch (error) {
@@ -342,7 +503,7 @@ program
   .option('-t, --title <title>', 'New page title (optional)')
   .option('-f, --file <file>', 'Read content from file')
   .option('-c, --content <content>', 'Page content as string')
-  .option('--format <format>', 'Content format (storage, html, markdown)', 'storage')
+  .option('--format <format>', 'Content format (storage, html, markdown, adf)', 'storage')
   .action(async (pageId, options) => {
     const analytics = new Analytics();
     try {
@@ -376,8 +537,12 @@ program
       console.log(chalk.green('✅ Page updated successfully!'));
       console.log(`Title: ${chalk.blue(result.title)}`);
       console.log(`ID: ${chalk.blue(result.id)}`);
-      console.log(`Version: ${chalk.blue(result.version.number)}`);
-      console.log(`URL: ${chalk.gray(`${client.buildUrl(`${client.webUrlPrefix}${result._links.webui}`)}`)}`);
+      if (result.version?.number) {
+        console.log(`Version: ${chalk.blue(result.version.number)}`);
+      }
+      if (result._links?.webui) {
+        console.log(`URL: ${chalk.gray(`${client.buildUrl(`${client.webUrlPrefix}${result._links.webui}`)}`)}`);
+      }
 
       analytics.track('update', true);
     } catch (error) {
@@ -1391,7 +1556,7 @@ program
 program
   .command('export <pageId>')
   .description('Export a page to a directory with its attachments')
-  .option('--format <format>', 'Content format (html, text, markdown)', 'markdown')
+  .option('--format <format>', 'Content format (html, text, markdown, adf)', 'markdown')
   .option('--dest <directory>', 'Base directory to export into', '.')
   .option('--file <filename>', 'Content filename (default: page.<ext>)')
   .option('--attachments-dir <name>', 'Subdirectory for attachments', 'attachments')
@@ -1419,7 +1584,7 @@ program
       }
 
       const format = (options.format || 'markdown').toLowerCase();
-      const formatExt = { markdown: 'md', html: 'html', text: 'txt' };
+      const formatExt = { markdown: 'md', html: 'html', text: 'txt', adf: 'json' };
       const contentExt = formatExt[format] || 'txt';
 
       const pageInfo = await client.getPageInfo(pageId);
@@ -1553,7 +1718,7 @@ async function exportRecursive(client, fs, path, pageId, options) {
     ? options.exclude.split(',').map(p => p.trim()).filter(Boolean)
     : [];
   const format = (options.format || 'markdown').toLowerCase();
-  const formatExt = { markdown: 'md', html: 'html', text: 'txt' };
+  const formatExt = { markdown: 'md', html: 'html', text: 'txt', adf: 'json' };
   const contentExt = formatExt[format] || 'txt';
   const contentFile = options.file || `page.${contentExt}`;
   const baseDir = path.resolve(options.dest || '.');
@@ -2112,10 +2277,18 @@ profileCmd
   .option('-d, --domain <domain>', 'Confluence domain')
   .option('--protocol <protocol>', 'Protocol (http or https)')
   .option('-p, --api-path <path>', 'REST API path')
-  .option('-a, --auth-type <type>', 'Authentication type (basic, bearer, mtls, or cookie)')
+  .option('-a, --auth-type <type>', 'Authentication type (basic, bearer, oauth, mtls, or cookie)')
   .option('-e, --email <email>', 'Email or username for basic auth')
   .option('-t, --token <token>', 'API token')
   .option('-c, --cookie <cookie>', 'Cookie for Enterprise SSO authentication (e.g., "JSESSIONID=...")')
+  .option('--oauth-client-id <id>', 'OAuth 2.0 client ID')
+  .option('--oauth-client-secret <secret>', 'OAuth 2.0 client secret')
+  .option('--oauth-access-token <token>', 'OAuth 2.0 access token')
+  .option('--oauth-refresh-token <token>', 'OAuth 2.0 refresh token')
+  .option('--oauth-expires-at <ms>', 'OAuth access token expiry time in epoch milliseconds')
+  .option('--oauth-cloud-id <id>', 'Atlassian Cloud ID for Confluence')
+  .option('--oauth-site-url <url>', 'Atlassian Cloud site URL')
+  .option('--oauth-scopes <scopes>', 'OAuth scopes (space or comma separated)')
   .option('--tls-ca-cert <path>', 'CA certificate for mTLS connections')
   .option('--tls-client-cert <path>', 'Client certificate for mTLS connections')
   .option('--tls-client-key <path>', 'Client private key for mTLS connections')

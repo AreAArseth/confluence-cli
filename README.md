@@ -4,11 +4,11 @@ A powerful command-line interface for Atlassian Confluence that allows you to re
 
 ## Features
 
-- 📖 **Read pages** - Get page content in text or HTML format
+- 📖 **Read pages** - Get page content in text, HTML, storage, Markdown, or raw ADF format
 - 🔍 **Search** - Find pages using Confluence's powerful search
 - ℹ️ **Page info** - Get detailed information about pages
 - 🏠 **List spaces** - View available Confluence spaces
-- ✏️ **Create pages** - Create new pages with support for Markdown, HTML, or Storage format
+- ✏️ **Create pages** - Create new pages with support for Markdown, HTML, Storage, or raw ADF format
 - 📝 **Update pages** - Update existing page content and titles
 - 🗑️ **Delete pages** - Delete (or move to trash) pages by ID or URL
 - 📎 **Attachments** - List, download, upload, or delete page attachments
@@ -19,7 +19,7 @@ A powerful command-line interface for Atlassian Confluence that allows you to re
 - 🔀 **Profiles** - Manage multiple Confluence instances with named configuration profiles
 - 🔒 **Read-only mode** - Profile-level write protection for safe AI agent usage
 - 🔄 **Format conversion** - Convert between Markdown, HTML, Storage, and text formats locally (no server required)
-- 🔧 **Easy setup** - Simple configuration with environment variables or interactive setup
+- 🔧 **Easy setup** - Simple configuration with environment variables, interactive setup, or OAuth 2.0 Cloud login
 
 ## Installation
 
@@ -102,7 +102,7 @@ This creates `.claude/skills/confluence/SKILL.md` in your current directory. Cla
 confluence init
 ```
 
-The wizard helps you choose the right API endpoint and authentication method. It recommends `/wiki/rest/api` for Atlassian Cloud domains (e.g., `*.atlassian.net`) and `/rest/api` for self-hosted/Data Center instances, then prompts for Basic (email/username + token/password), Bearer, or client-certificate (mTLS) authentication.
+The wizard helps you choose the right API endpoint and authentication method. It recommends `/wiki/rest/api` for Atlassian Cloud domains (e.g., `*.atlassian.net`) and `/rest/api` for self-hosted/Data Center instances, then prompts for Basic (email/username + token/password), Bearer, OAuth, Cookie, or client-certificate (mTLS) authentication.
 
 ### Option 2: Non-interactive Setup (CLI Flags)
 
@@ -315,6 +315,30 @@ When creating a scoped token, select the following [classic scopes](https://deve
 
 For **read-only** usage, select at minimum: `read:confluence-content.all`, `read:confluence-content.summary`, `read:confluence-space.summary`, and `search:confluence`.
 
+**Atlassian Cloud — OAuth 2.0 (3LO):**
+
+Use OAuth when you want the CLI to act as the signed-in Atlassian user instead of using an API token. Create an OAuth 2.0 (3LO) app in the [Atlassian developer console](https://developer.atlassian.com/console/myapps/), configure a redirect URI such as `http://127.0.0.1:8765/callback`, and grant the scopes needed for your commands.
+
+For raw ADF page operations on Cloud, the minimum scopes are:
+
+| Scope | Required for |
+|-------|-------------|
+| `read:page:confluence` | Reading pages in ADF format |
+| `write:page:confluence` | Creating and updating pages in ADF format |
+| `read:space:confluence` | Resolving a space key to the REST v2 space ID |
+| `offline_access` | Refreshing OAuth access tokens |
+
+Then run:
+
+```bash
+confluence oauth-login \
+  --domain "nordicsemi.atlassian.net" \
+  --client-id "$CONFLUENCE_OAUTH_CLIENT_ID" \
+  --client-secret "$CONFLUENCE_OAUTH_CLIENT_SECRET"
+```
+
+The login flow resolves the site's Cloud ID via Atlassian's `accessible-resources` endpoint and stores OAuth tokens in the active profile. OAuth API calls are routed through `https://api.atlassian.com/ex/confluence/<cloud-id>/...`. To remove stored OAuth tokens, run `confluence oauth-logout`.
+
 **On-premise / Data Center:** Use your Confluence username and password for basic authentication.
 
 **mTLS-protected Confluence APIs:** Some self-hosted or reverse-proxied deployments authenticate at the TLS layer with a client certificate instead of sending an application-level token. In these environments, configure `authType=mtls` and provide certificate paths via CLI flags or environment variables. No `Authorization` header will be sent in mTLS mode.
@@ -334,11 +358,15 @@ confluence read 123456789 --format storage
 # Read in markdown format
 confluence read 123456789 --format markdown
 
+# Read raw Atlassian Document Format (ADF) JSON from Confluence Cloud REST v2
+confluence read 123456789 --format adf
+
 # Read by URL (must contain pageId parameter)
 confluence read "https://your-domain.atlassian.net/wiki/viewpage.action?pageId=123456789"
 ```
 
 Use `--format storage` when you need Confluence's native storage representation, especially for macros and other Confluence-specific markup.
+Use `--format adf` when you need Confluence Cloud's Atlassian Document Format JSON. ADF is passed through as raw JSON and is not converted locally by `confluence convert`.
 
 ### Get Page Information
 ```bash
@@ -543,6 +571,26 @@ confluence create "My New Page" SPACEKEY --content "**Hello** World!" --format m
 
 # Create from a file
 confluence create "Documentation" SPACEKEY --file ./content.md --format markdown
+
+# Create from raw ADF JSON on Confluence Cloud
+confluence create "ADF Page" SPACEKEY --file ./page.adf.json --format adf
+```
+
+Minimal ADF input example:
+
+```json
+{
+  "type": "doc",
+  "version": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "content": [
+        { "type": "text", "text": "Hello from ADF" }
+      ]
+    }
+  ]
+}
 ```
 
 ### Create a Child Page
@@ -593,6 +641,9 @@ confluence update 123456789 --content "Updated page content."
 
 # Update content from a file
 confluence update 123456789 --file ./updated-content.md --format markdown
+
+# Update content from raw ADF JSON on Confluence Cloud
+confluence update 123456789 --file ./page.adf.json --format adf
 
 # Update both title and content
 confluence update 123456789 --title "New Title" --content "And new content"
@@ -783,6 +834,8 @@ echo "# Hello" | confluence convert --input-format markdown --output-format stor
 # Convert storage format back to markdown
 confluence convert -i page.xml -o page.md --input-format storage --output-format markdown
 ```
+
+`confluence convert` does not convert to or from ADF. ADF support is an online Confluence Cloud REST v2 passthrough for `read`, `create`, `create-child`, `update`, and `export`.
 
 ## Markdown Marker Conventions
 

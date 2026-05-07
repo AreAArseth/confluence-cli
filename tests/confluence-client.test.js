@@ -4,6 +4,7 @@ const path = require('path');
 const FormData = require('form-data');
 const ConfluenceClient = require('../lib/confluence-client');
 const MockAdapter = require('axios-mock-adapter');
+const axios = require('axios');
 
 const removeDirRecursive = (dir) => {
   if (!dir) return;
@@ -323,6 +324,71 @@ describe('ConfluenceClient', () => {
 
       expect(cookieClient.client.defaults.headers.Cookie).toBe('JSESSIONID=abc; XSRF-TOKEN=xyz');
     });
+
+    test('oauth auth injects bearer token dynamically', async () => {
+      const oauthClient = new ConfluenceClient({
+        domain: 'test.atlassian.net',
+        authType: 'oauth',
+        apiPath: '/wiki/rest/api',
+        oauth: {
+          accessToken: 'oauth-access',
+          cloudId: 'cloud-123',
+          siteUrl: 'https://test.atlassian.net'
+        }
+      });
+      const mock = new MockAdapter(oauthClient.client);
+      mock.onGet('https://api.atlassian.com/ex/confluence/cloud-123/wiki/api/v2/pages/123').reply(config => {
+        expect(config.headers.Authorization).toBe('Bearer oauth-access');
+        return [200, {
+          body: {
+            atlas_doc_format: { value: '{"type":"doc","version":1,"content":[]}' }
+          }
+        }];
+      });
+
+      await oauthClient.readPage('123', 'adf');
+
+      mock.restore();
+    });
+
+    test('oauth auth refreshes expired tokens before Cloud calls', async () => {
+      const tokenMock = new MockAdapter(axios);
+      tokenMock.onPost('https://auth.atlassian.com/oauth/token').reply(200, {
+        access_token: 'fresh-access',
+        refresh_token: 'fresh-refresh',
+        expires_in: 3600,
+        scope: 'read:page:confluence'
+      });
+      const oauthClient = new ConfluenceClient({
+        domain: 'test.atlassian.net',
+        authType: 'oauth',
+        apiPath: '/wiki/rest/api',
+        oauth: {
+          clientId: 'client-id',
+          clientSecret: 'client-secret',
+          accessToken: 'expired-access',
+          refreshToken: 'old-refresh',
+          expiresAt: Date.now() - 1000,
+          cloudId: 'cloud-123',
+          siteUrl: 'https://test.atlassian.net'
+        }
+      });
+      const mock = new MockAdapter(oauthClient.client);
+      mock.onGet('https://api.atlassian.com/ex/confluence/cloud-123/wiki/api/v2/pages/123').reply(config => {
+        expect(config.headers.Authorization).toBe('Bearer fresh-access');
+        return [200, {
+          body: {
+            atlas_doc_format: { value: '{"type":"doc","version":1,"content":[]}' }
+          }
+        }];
+      });
+
+      await oauthClient.readPage('123', 'adf');
+
+      expect(oauthClient.oauth.refreshToken).toBe('fresh-refresh');
+      mock.restore();
+      tokenMock.restore();
+    });
   });
 
   describe('401 error handling (cookie auth)', () => {
@@ -436,6 +502,43 @@ describe('ConfluenceClient', () => {
       });
 
       await expect(client.readPage('123', 'storage')).resolves.toBe('<p>Storage body</p>');
+
+      mock.restore();
+    });
+
+    test('readPage should return ADF content from REST v2 when format is adf', async () => {
+      const cloudClient = new ConfluenceClient({
+        domain: 'test.atlassian.net',
+        token: 'test-token',
+        apiPath: '/wiki/rest/api'
+      });
+      const mock = new MockAdapter(cloudClient.client);
+      mock.onGet('https://test.atlassian.net/wiki/api/v2/pages/123').reply(config => {
+        expect(config.params).toEqual({ 'body-format': 'atlas_doc_format' });
+        return [200, {
+          body: {
+            atlas_doc_format: {
+              value: JSON.stringify({ type: 'doc', version: 1, content: [] })
+            }
+          }
+        }];
+      });
+
+      await expect(cloudClient.readPage('123', 'adf')).resolves.toBe(JSON.stringify({ type: 'doc', version: 1, content: [] }, null, 2));
+
+      mock.restore();
+    });
+
+    test('readPage adf errors clearly when ADF body is absent', async () => {
+      const cloudClient = new ConfluenceClient({
+        domain: 'test.atlassian.net',
+        token: 'test-token',
+        apiPath: '/wiki/rest/api'
+      });
+      const mock = new MockAdapter(cloudClient.client);
+      mock.onGet('https://test.atlassian.net/wiki/api/v2/pages/123').reply(200, { body: {} });
+
+      await expect(cloudClient.readPage('123', 'adf')).rejects.toThrow(/atlas_doc_format/);
 
       mock.restore();
     });
@@ -1499,6 +1602,110 @@ describe('ConfluenceClient', () => {
       expect(requestData.type).toBe('folder');
       expect(requestData.ancestors).toEqual([{ id: '100' }]);
       expect(requestData.body).toBeUndefined();
+      mock.restore();
+    });
+
+    test('createPage should send raw ADF through REST v2', async () => {
+      const cloudClient = new ConfluenceClient({
+        domain: 'test.atlassian.net',
+        token: 'test-token',
+        apiPath: '/wiki/rest/api'
+      });
+      const mock = new MockAdapter(cloudClient.client);
+      const adf = { type: 'doc', version: 1, content: [] };
+      mock.onGet('https://test.atlassian.net/wiki/api/v2/spaces').reply(200, {
+        results: [{ id: 'space-1', key: 'TEST' }]
+      });
+      mock.onPost('https://test.atlassian.net/wiki/api/v2/pages').reply(config => {
+        const requestData = JSON.parse(config.data);
+        expect(requestData).toEqual({
+          spaceId: 'space-1',
+          status: 'current',
+          title: 'ADF Page',
+          body: {
+            representation: 'atlas_doc_format',
+            value: JSON.stringify(adf)
+          }
+        });
+        return [200, { id: '111', title: 'ADF Page', spaceId: 'space-1', version: { number: 1 } }];
+      });
+
+      const result = await cloudClient.createPage('ADF Page', 'TEST', JSON.stringify(adf), 'adf');
+      expect(result.id).toBe('111');
+
+      mock.restore();
+    });
+
+    test('createChildPage should send parentId with raw ADF through REST v2', async () => {
+      const cloudClient = new ConfluenceClient({
+        domain: 'test.atlassian.net',
+        token: 'test-token',
+        apiPath: '/wiki/rest/api'
+      });
+      const mock = new MockAdapter(cloudClient.client);
+      const adf = { type: 'doc', version: 1, content: [] };
+      mock.onGet('https://test.atlassian.net/wiki/api/v2/spaces').reply(200, {
+        results: [{ id: 'space-1', key: 'TEST' }]
+      });
+      mock.onPost('https://test.atlassian.net/wiki/api/v2/pages').reply(config => {
+        const requestData = JSON.parse(config.data);
+        expect(requestData.parentId).toBe('100');
+        expect(requestData.body).toEqual({
+          representation: 'atlas_doc_format',
+          value: JSON.stringify(adf)
+        });
+        return [200, { id: '333', title: 'Child ADF', spaceId: 'space-1', version: { number: 1 } }];
+      });
+
+      await cloudClient.createChildPage('Child ADF', 'TEST', '100', JSON.stringify(adf), 'adf');
+
+      mock.restore();
+    });
+
+    test('updatePage should send raw ADF through REST v2 with incremented version', async () => {
+      const cloudClient = new ConfluenceClient({
+        domain: 'test.atlassian.net',
+        token: 'test-token',
+        apiPath: '/wiki/rest/api'
+      });
+      const mock = new MockAdapter(cloudClient.client);
+      const adf = { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [] }] };
+      mock.onGet('https://test.atlassian.net/wiki/api/v2/pages/123').reply(200, {
+        id: '123',
+        status: 'current',
+        title: 'Old title',
+        version: { number: 4 },
+        body: {
+          atlas_doc_format: { value: JSON.stringify({ type: 'doc', version: 1, content: [] }) }
+        }
+      });
+      mock.onPut('https://test.atlassian.net/wiki/api/v2/pages/123').reply(config => {
+        const requestData = JSON.parse(config.data);
+        expect(requestData).toEqual({
+          id: '123',
+          status: 'current',
+          title: 'New title',
+          body: {
+            representation: 'atlas_doc_format',
+            value: JSON.stringify(adf)
+          },
+          version: { number: 5 }
+        });
+        return [200, { id: '123', title: 'New title', version: { number: 5 } }];
+      });
+
+      await cloudClient.updatePage('123', 'New title', JSON.stringify(adf), 'adf');
+
+      mock.restore();
+    });
+
+    test('invalid ADF JSON fails before sending an API request', async () => {
+      const mock = new MockAdapter(client.client);
+
+      await expect(client.createPage('Bad ADF', 'TEST', '{"type":', 'adf')).rejects.toThrow(/Invalid ADF JSON/);
+      expect(mock.history.get).toHaveLength(0);
+      expect(mock.history.post).toHaveLength(0);
+
       mock.restore();
     });
   });

@@ -1,3 +1,9 @@
+# Unreleased
+
+### Features
+
+* **cloud:** add OAuth 2.0 login and raw ADF passthrough support for Confluence Cloud REST v2
+
 # [2.6.0](https://github.com/pchuri/confluence-cli/compare/v2.5.0...v2.6.0) (2026-05-07)
 
 

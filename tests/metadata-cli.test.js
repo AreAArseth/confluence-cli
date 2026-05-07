@@ -169,6 +169,51 @@ describe('CLI metadata and storage output', () => {
     expect(logSpy).toHaveBeenCalledWith('<ac:structured-macro ac:name="info" />');
   });
 
+  test('read --format adf passes adf to the client', async () => {
+    const { program, client } = await loadCli({
+      readPage: jest.fn(async () => '{"type":"doc","version":1,"content":[]}')
+    });
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    await runCli(program, ['read', '123', '--format', 'adf']);
+
+    expect(client.readPage).toHaveBeenCalledWith('123', 'adf');
+    expect(logSpy).toHaveBeenCalledWith('{"type":"doc","version":1,"content":[]}');
+  });
+
+  test('create --format adf passes adf to the client', async () => {
+    const { program, client } = await loadCli({
+      createPage: jest.fn(async () => ({
+        id: '123',
+        title: 'ADF Page',
+        spaceId: 'space-1',
+        version: { number: 1 },
+        _links: { webui: '/spaces/TEST/pages/123' }
+      }))
+    });
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    await runCli(program, ['create', 'ADF Page', 'TEST', '--content', '{"type":"doc","version":1,"content":[]}', '--format', 'adf']);
+
+    expect(client.createPage).toHaveBeenCalledWith('ADF Page', 'TEST', '{"type":"doc","version":1,"content":[]}', 'adf', 'page');
+  });
+
+  test('update --format adf passes adf to the client', async () => {
+    const { program, client } = await loadCli({
+      updatePage: jest.fn(async () => ({
+        id: '123',
+        title: 'ADF Page',
+        version: { number: 2 },
+        _links: { webui: '/spaces/TEST/pages/123' }
+      }))
+    });
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    await runCli(program, ['update', '123', '--content', '{"type":"doc","version":1,"content":[]}', '--format', 'adf']);
+
+    expect(client.updatePage).toHaveBeenCalledWith('123', undefined, '{"type":"doc","version":1,"content":[]}', 'adf');
+  });
+
   test('children --format json returns structured direct children', async () => {
     const { program } = await loadCli({
       getChildPages: jest.fn(async () => ([

@@ -124,6 +124,7 @@ confluence read "https://company.atlassian.net/wiki/spaces/MYSPACE/pages/1234567
 | `storage` | Confluence XML storage format (default for create/update). Use for programmatic round-trips. |
 | `html` | Raw HTML. |
 | `text` | Plain text — for read/export output only, not for creation. |
+| `adf` | Raw Atlassian Document Format JSON for Confluence Cloud REST v2. No local conversion. |
 
 ---
 
@@ -143,6 +144,15 @@ All flags are optional; omitting any flag triggers an interactive prompt for tha
 confluence --profile staging init --domain "staging.example.com" --auth-type bearer --token "your-token"
 ```
 
+For Atlassian Cloud OAuth 2.0 (3LO), use:
+
+```sh
+confluence oauth-login --domain "nordicsemi.atlassian.net" --client-id "$CONFLUENCE_OAUTH_CLIENT_ID" --client-secret "$CONFLUENCE_OAUTH_CLIENT_SECRET"
+confluence oauth-logout
+```
+
+OAuth Cloud ADF operations need `read:page:confluence`, `write:page:confluence`, `read:space:confluence`, and `offline_access`.
+
 ---
 
 ### `read <pageId>`
@@ -150,17 +160,18 @@ confluence --profile staging init --domain "staging.example.com" --auth-type bea
 Read page content. Outputs to stdout.
 
 ```sh
-confluence read <pageId> [--format html|text|storage|markdown]
+confluence read <pageId> [--format html|text|storage|markdown|adf]
 ```
 
 | Option | Default | Description |
 |---|---|---|
-| `--format` | `text` | Output format: `html`, `text`, `storage`, or `markdown` |
+| `--format` | `text` | Output format: `html`, `text`, `storage`, `markdown`, or raw Cloud ADF JSON |
 
 ```sh
 confluence read 123456789
 confluence read 123456789 --format storage
 confluence read 123456789 --format markdown
+confluence read 123456789 --format adf
 ```
 
 ---
@@ -258,7 +269,7 @@ confluence children 123456789 --recursive --format tree --show-id
 Create a new top-level page or folder in a space.
 
 ```sh
-confluence create <title> <spaceKey> [--content <string>] [--file <path>] [--format storage|html|markdown] [--type page|folder]
+confluence create <title> <spaceKey> [--content <string>] [--file <path>] [--format storage|html|markdown|adf] [--type page|folder]
 ```
 
 | Option | Default | Description |
@@ -273,6 +284,7 @@ Either `--content` or `--file` is required for pages. Folders take no content �
 ```sh
 confluence create "Project Overview" MYSPACE --content "# Hello" --format markdown
 confluence create "Release Notes" MYSPACE --file ./notes.md --format markdown
+confluence create "ADF Page" MYSPACE --file ./page.adf.json --format adf
 confluence create "Engineering Docs" MYSPACE --type folder
 ```
 
@@ -303,7 +315,7 @@ confluence create-child "Sub-folder" 123456789 --type folder
 Update an existing page's title and/or content. At least one of `--title`, `--content`, or `--file` is required.
 
 ```sh
-confluence update <pageId> [--title <title>] [--content <string>] [--file <path>] [--format storage|html|markdown]
+confluence update <pageId> [--title <title>] [--content <string>] [--file <path>] [--format storage|html|markdown|adf]
 ```
 
 | Option | Default | Description |
@@ -317,6 +329,7 @@ confluence update <pageId> [--title <title>] [--content <string>] [--file <path>
 confluence update 123456789 --title "New Title"
 confluence update 123456789 --file ./updated.md --format markdown
 confluence update 123456789 --title "New Title" --file ./updated.xml --format storage
+confluence update 123456789 --file ./page.adf.json --format adf
 ```
 
 ---
@@ -665,6 +678,8 @@ echo "# Hello" | confluence convert --input-format markdown --output-format stor
 confluence convert -i page.xml --input-format storage --output-format markdown
 ```
 
+ADF is not supported by `convert`; it is raw JSON passthrough for Cloud `read`, `create`, `create-child`, `update`, and `export`.
+
 ---
 
 ### `install-skill`
@@ -756,7 +771,7 @@ confluence search --cql 'siteSearch ~ "release notes" and space = "MYSPACE"' --l
 ## Agent Tips
 
 - **Always use `--yes`** on destructive commands (`delete`, `comment-delete`, `attachment-delete`) to avoid interactive prompts blocking the agent.
-- **Prefer `--format markdown`** when creating or updating content from agent-generated text — it's the most natural format and the API converts it automatically.
+- **Prefer `--format markdown`** when creating or updating content from agent-generated text — it's the most natural format and the API converts it automatically. Use `--format adf` only when you already have valid ADF JSON for Confluence Cloud REST v2.
 - **Use `--format json`** on `children` and `comments` for machine-parseable output.
 - **ANSI color codes**: stdout may contain ANSI escape sequences. Pipe through `| cat` or use `NO_COLOR=1` if your downstream tool doesn't handle them.
 - **Page ID vs URL**: when you have a Confluence URL, extract `?pageId=<number>` and pass the number. Do not pass pretty/display URLs — they are not supported.
