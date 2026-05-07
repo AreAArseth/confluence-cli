@@ -506,6 +506,35 @@ describe('ConfluenceClient', () => {
       mock.restore();
     });
 
+    test('readPage should use REST v2 storage for Cloud OAuth profiles', async () => {
+      const oauthClient = new ConfluenceClient({
+        domain: 'test.atlassian.net',
+        authType: 'oauth',
+        apiPath: '/wiki/rest/api',
+        oauth: {
+          accessToken: 'oauth-access',
+          cloudId: 'cloud-123',
+          siteUrl: 'https://test.atlassian.net'
+        }
+      });
+      const mock = new MockAdapter(oauthClient.client);
+      mock.onGet('https://api.atlassian.com/ex/confluence/cloud-123/wiki/api/v2/pages/123').reply(config => {
+        expect(config.params).toEqual({ 'body-format': 'storage' });
+        expect(config.headers.Authorization).toBe('Bearer oauth-access');
+        return [200, {
+          body: {
+            storage: {
+              value: '<p>Storage body</p>'
+            }
+          }
+        }];
+      });
+
+      await expect(oauthClient.readPage('123', 'storage')).resolves.toBe('<p>Storage body</p>');
+
+      mock.restore();
+    });
+
     test('readPage should return ADF content from REST v2 when format is adf', async () => {
       const cloudClient = new ConfluenceClient({
         domain: 'test.atlassian.net',
@@ -539,6 +568,49 @@ describe('ConfluenceClient', () => {
       mock.onGet('https://test.atlassian.net/wiki/api/v2/pages/123').reply(200, { body: {} });
 
       await expect(cloudClient.readPage('123', 'adf')).rejects.toThrow(/atlas_doc_format/);
+
+      mock.restore();
+    });
+
+    test('getPageInfo should use REST v2 metadata for Cloud OAuth profiles', async () => {
+      const oauthClient = new ConfluenceClient({
+        domain: 'test.atlassian.net',
+        authType: 'oauth',
+        apiPath: '/wiki/rest/api',
+        oauth: {
+          accessToken: 'oauth-access',
+          cloudId: 'cloud-123',
+          siteUrl: 'https://test.atlassian.net'
+        }
+      });
+      const mock = new MockAdapter(oauthClient.client);
+      mock.onGet('https://api.atlassian.com/ex/confluence/cloud-123/wiki/api/v2/pages/123').reply(config => {
+        expect(config.headers.Authorization).toBe('Bearer oauth-access');
+        return [200, {
+          id: '123',
+          title: 'Architecture Overview',
+          type: 'page',
+          status: 'current',
+          spaceId: '456',
+          parentId: '789',
+          version: { number: 7 },
+          _links: {
+            base: 'https://test.atlassian.net/wiki',
+            webui: '/spaces/ENG/pages/123/Architecture+Overview'
+          }
+        }];
+      });
+
+      await expect(oauthClient.getPageInfo('123')).resolves.toMatchObject({
+        id: '123',
+        title: 'Architecture Overview',
+        type: 'page',
+        status: 'current',
+        spaceId: '456',
+        parentId: '789',
+        version: 7,
+        url: 'https://test.atlassian.net/wiki/spaces/ENG/pages/123/Architecture+Overview'
+      });
 
       mock.restore();
     });
