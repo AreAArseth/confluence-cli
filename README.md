@@ -317,16 +317,24 @@ For **read-only** usage, select at minimum: `read:confluence-content.all`, `read
 
 **Atlassian Cloud — OAuth 2.0 (3LO):**
 
-Use OAuth when you want the CLI to act as the signed-in Atlassian user instead of using an API token. Create an OAuth 2.0 (3LO) app in the [Atlassian developer console](https://developer.atlassian.com/console/myapps/), configure a redirect URI such as `http://127.0.0.1:8765/callback`, and grant the scopes needed for your commands.
+Use OAuth when you want the CLI to act as the signed-in Atlassian user instead of using an API token. Create an OAuth 2.0 (3LO) app in the [Atlassian developer console](https://developer.atlassian.com/console/myapps/), configure a redirect URI such as `http://127.0.0.1:8765/callback`, and grant the CLI's default scopes.
 
-For raw ADF page operations on Cloud, the minimum scopes are:
+By default, `confluence oauth-login` requests the scopes needed for the full CLI command surface: read/search spaces and pages, create/update/delete pages and folders, comments, content properties, attachments, user mention resolution, ADF operations, and refresh tokens. You only need `--scopes` when intentionally narrowing or customizing that set.
+
+The default OAuth scope set includes:
 
 | Scope | Required for |
 |-------|-------------|
-| `read:page:confluence` | Reading pages in ADF format |
-| `write:page:confluence` | Creating and updating pages in ADF format |
-| `delete:page:confluence` | Deleting temporary or test pages through REST v2 |
-| `read:space:confluence` | Resolving a space key to the REST v2 space ID |
+| `read:confluence-content.all`, `read:confluence-content.summary` | Reading page details and storage content through REST v1 |
+| `read:confluence-space.summary`, `read:space:confluence` | Listing spaces and resolving space IDs |
+| `search:confluence` | Search and title lookup |
+| `read:confluence-user`, `read:user:confluence` | User mention resolution |
+| `read:confluence-props`, `write:confluence-props`, `read:content.property:confluence`, `write:content.property:confluence` | Content properties |
+| `write:confluence-content`, `read:page:confluence`, `write:page:confluence`, `delete:page:confluence` | Page create/update/delete and REST v2 ADF operations |
+| `read:comment:confluence`, `write:comment:confluence`, `delete:comment:confluence` | Comments |
+| `read:folder:confluence`, `write:folder:confluence`, `delete:folder:confluence` | Folders |
+| `readonly:content.attachment:confluence`, `read:attachment:confluence`, `write:attachment:confluence`, `delete:attachment:confluence`, `write:confluence-file` | Attachment list/download/upload/delete |
+| `read:content-details:confluence`, `read:hierarchical-content:confluence` | Content metadata, children, and recursive exports/copies |
 | `offline_access` | Refreshing OAuth access tokens |
 
 Then run:

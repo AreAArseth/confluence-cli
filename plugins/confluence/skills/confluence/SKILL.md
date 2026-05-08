@@ -1,9 +1,9 @@
 ---
-name: confluence
+
+## name: confluence
 description: Use confluence-cli to read, search, create, update, move, delete, and convert Confluence pages and attachments from the terminal.
 argument-hint: <pageId, URL, search query, or task description>
 allowed-tools: [Bash, Read, Write, Glob, Grep]
----
 
 # confluence-cli Skill
 
@@ -20,17 +20,19 @@ confluence --version   # verify install
 
 **Preferred for agents — environment variables (no interactive prompt):**
 
-| Variable | Description | Example |
-|---|---|---|
-| `CONFLUENCE_DOMAIN` | Your Confluence hostname | `company.atlassian.net` |
-| `CONFLUENCE_API_PATH` | REST API base path | `/wiki/rest/api` (Cloud) or `/rest/api` (Server/DC) |
-| `CONFLUENCE_AUTH_TYPE` | `basic` or `bearer` | `basic` |
-| `CONFLUENCE_EMAIL` | Email address (basic auth only) | `user@company.com` |
-| `CONFLUENCE_API_TOKEN` | API token or personal access token | `ATATT3x...` |
-| `CONFLUENCE_PROFILE` | Named profile to use (optional) | `staging` |
-| `CONFLUENCE_READ_ONLY` | Block all write operations when `true` | `true` |
-| `CONFLUENCE_FORCE_CLOUD` | Force Cloud link format for custom domains | `true` |
-| `CONFLUENCE_LINK_STYLE` | Override link rendering: `smart`, `plain`, or `wiki` | `plain` |
+
+| Variable                 | Description                                          | Example                                             |
+| ------------------------ | ---------------------------------------------------- | --------------------------------------------------- |
+| `CONFLUENCE_DOMAIN`      | Your Confluence hostname                             | `company.atlassian.net`                             |
+| `CONFLUENCE_API_PATH`    | REST API base path                                   | `/wiki/rest/api` (Cloud) or `/rest/api` (Server/DC) |
+| `CONFLUENCE_AUTH_TYPE`   | `basic` or `bearer`                                  | `basic`                                             |
+| `CONFLUENCE_EMAIL`       | Email address (basic auth only)                      | `user@company.com`                                  |
+| `CONFLUENCE_API_TOKEN`   | API token or personal access token                   | `ATATT3x...`                                        |
+| `CONFLUENCE_PROFILE`     | Named profile to use (optional)                      | `staging`                                           |
+| `CONFLUENCE_READ_ONLY`   | Block all write operations when `true`               | `true`                                              |
+| `CONFLUENCE_FORCE_CLOUD` | Force Cloud link format for custom domains           | `true`                                              |
+| `CONFLUENCE_LINK_STYLE`  | Override link rendering: `smart`, `plain`, or `wiki` | `plain`                                             |
+
 
 **Global `--profile` flag (use a named profile for any command):**
 
@@ -39,6 +41,7 @@ confluence --profile <name> <command>
 ```
 
 Config resolution works in two stages:
+
 - **Direct env config:** If both `CONFLUENCE_DOMAIN` and `CONFLUENCE_API_TOKEN` are set, they are used directly and the config file / profiles are not consulted.
 - **Profile-based config:** Otherwise, a profile is selected in this order: `--profile` flag > `CONFLUENCE_PROFILE` env > `activeProfile` in config > `default`.
 
@@ -54,6 +57,7 @@ confluence init \
 ```
 
 **Cloud vs Server/DC:**
+
 - Atlassian Cloud (`*.atlassian.net`): use `--api-path "/wiki/rest/api"`, auth type `basic` with email + API token
 - Atlassian Cloud (custom domain): if your Cloud instance uses a custom domain (e.g., `wiki.example.org`), set `CONFLUENCE_FORCE_CLOUD=true` or add `"forceCloud": true` to your profile in `~/.confluence-cli/config.json`. Without this, links will render incorrectly.
 - Atlassian Cloud (scoped token): use `--domain "api.atlassian.com"`, `--api-path "/ex/confluence/<your-cloud-id>/wiki/rest/api"`, auth type `basic` with email + scoped token. Get your Cloud ID from `https://<your-site>.atlassian.net/_edge/tenant_info`. Recommended for agents (least privilege).
@@ -70,6 +74,7 @@ export CONFLUENCE_API_TOKEN="your-scoped-token"
 ```
 
 Required classic scopes for scoped tokens:
+
 - Read-only: `read:confluence-content.all`, `read:confluence-content.summary`, `read:confluence-space.summary`, `search:confluence`
 - Write: add `write:confluence-content`, `write:confluence-file`, `write:confluence-space`
 - Attachments: `readonly:content.attachment:confluence` (download), `write:confluence-file` (upload)
@@ -87,6 +92,7 @@ export CONFLUENCE_READ_ONLY=true
 ```
 
 When read-only mode is active, any write command exits with an error:
+
 ```
 Error: This profile is in read-only mode. Write operations are not allowed.
 ```
@@ -101,12 +107,14 @@ Most commands accept `<pageId>` — a numeric ID or any of the supported URL for
 
 **Supported formats:**
 
-| Format | Example |
-|---|---|
-| Numeric ID | `123456789` |
-| `?pageId=` URL | `https://company.atlassian.net/wiki/viewpage.action?pageId=123456789` |
-| Pretty `/pages/<id>` URL | `https://company.atlassian.net/wiki/spaces/SPACE/pages/123456789/Page+Title` |
-| Display `/display/<space>/<title>` URL | `https://company.atlassian.net/wiki/display/SPACE/Page+Title` |
+
+| Format                                 | Example                                                                      |
+| -------------------------------------- | ---------------------------------------------------------------------------- |
+| Numeric ID                             | `123456789`                                                                  |
+| `?pageId=` URL                         | `https://company.atlassian.net/wiki/viewpage.action?pageId=123456789`        |
+| Pretty `/pages/<id>` URL               | `https://company.atlassian.net/wiki/spaces/SPACE/pages/123456789/Page+Title` |
+| Display `/display/<space>/<title>` URL | `https://company.atlassian.net/wiki/display/SPACE/Page+Title`                |
+
 
 ```sh
 confluence read 123456789
@@ -118,13 +126,15 @@ confluence read "https://company.atlassian.net/wiki/spaces/MYSPACE/pages/1234567
 
 ## Content Formats
 
-| Format | Notes |
-|---|---|
-| `markdown` | Recommended for agent-generated content. Automatically converted by the API. |
-| `storage` | Confluence XML storage format (default for create/update). Use for programmatic round-trips. |
-| `html` | Raw HTML. |
-| `text` | Plain text — for read/export output only, not for creation. |
-| `adf` | Raw Atlassian Document Format JSON for Confluence Cloud REST v2. No local conversion. |
+
+| Format     | Notes                                                                                        |
+| ---------- | -------------------------------------------------------------------------------------------- |
+| `markdown` | Recommended for agent-generated content. Automatically converted by the API.                 |
+| `storage`  | Confluence XML storage format (default for create/update). Use for programmatic round-trips. |
+| `html`     | Raw HTML.                                                                                    |
+| `text`     | Plain text — for read/export output only, not for creation.                                  |
+| `adf`      | Raw Atlassian Document Format JSON for Confluence Cloud REST v2. No local conversion.        |
+
 
 ---
 
@@ -151,7 +161,7 @@ confluence oauth-login --domain "nordicsemi.atlassian.net" --client-id "$CONFLUE
 confluence oauth-logout
 ```
 
-OAuth Cloud ADF operations need `read:page:confluence`, `write:page:confluence`, `delete:page:confluence`, `read:space:confluence`, and `offline_access`.
+`oauth-login` requests the default scopes needed for the full CLI command surface: pages, folders, spaces, search, comments, attachments, content properties, user mention resolution, Cloud ADF operations, and `offline_access`. Use `--scopes` only when intentionally narrowing or customizing that set.
 
 ---
 
@@ -163,9 +173,11 @@ Read page content. Outputs to stdout.
 confluence read <pageId> [--format html|text|storage|markdown|adf]
 ```
 
-| Option | Default | Description |
-|---|---|---|
-| `--format` | `text` | Output format: `html`, `text`, `storage`, `markdown`, or raw Cloud ADF JSON |
+
+| Option     | Default | Description                                                                 |
+| ---------- | ------- | --------------------------------------------------------------------------- |
+| `--format` | `text`  | Output format: `html`, `text`, `storage`, `markdown`, or raw Cloud ADF JSON |
+
 
 ```sh
 confluence read 123456789
@@ -199,9 +211,11 @@ Find a page by exact or partial title. Returns the first match.
 confluence find <title> [--space <spaceKey>]
 ```
 
-| Option | Description |
-|---|---|
+
+| Option    | Description                             |
+| --------- | --------------------------------------- |
 | `--space` | Restrict search to a specific space key |
+
 
 ```sh
 confluence find "Architecture Overview"
@@ -218,10 +232,12 @@ Search pages using a keyword or CQL expression.
 confluence search <query> [--limit <number>] [--cql]
 ```
 
-| Option | Default | Description |
-|---|---|---|
-| `--limit` | `10` | Maximum number of results |
-| `--cql` | false | Pass query as raw CQL instead of text search |
+
+| Option    | Default | Description                                  |
+| --------- | ------- | -------------------------------------------- |
+| `--limit` | `10`    | Maximum number of results                    |
+| `--cql`   | false   | Pass query as raw CQL instead of text search |
+
 
 ```sh
 confluence search "deployment pipeline"
@@ -248,13 +264,15 @@ List child pages of a page.
 confluence children <pageId> [--recursive] [--max-depth <number>] [--format list|tree|json] [--show-id] [--show-url]
 ```
 
-| Option | Default | Description |
-|---|---|---|
-| `--recursive` | false | List all descendants recursively |
-| `--max-depth` | `10` | Maximum depth for recursive listing |
-| `--format` | `list` | Output format: `list`, `tree`, or `json` |
-| `--show-id` | false | Show page IDs |
-| `--show-url` | false | Show page URLs |
+
+| Option        | Default | Description                              |
+| ------------- | ------- | ---------------------------------------- |
+| `--recursive` | false   | List all descendants recursively         |
+| `--max-depth` | `10`    | Maximum depth for recursive listing      |
+| `--format`    | `list`  | Output format: `list`, `tree`, or `json` |
+| `--show-id`   | false   | Show page IDs                            |
+| `--show-url`  | false   | Show page URLs                           |
+
 
 ```sh
 confluence children 123456789
@@ -272,12 +290,14 @@ Create a new top-level page or folder in a space.
 confluence create <title> <spaceKey> [--content <string>] [--file <path>] [--format storage|html|markdown|adf] [--type page|folder]
 ```
 
-| Option | Default | Description |
-|---|---|---|
-| `--content` | — | Inline content string |
-| `--file` | — | Path to content file |
-| `--format` | `storage` | Content format |
-| `--type` | `page` | Content type — `page` (default) or `folder`. Folders have no body. |
+
+| Option      | Default   | Description                                                        |
+| ----------- | --------- | ------------------------------------------------------------------ |
+| `--content` | —         | Inline content string                                              |
+| `--file`    | —         | Path to content file                                               |
+| `--format`  | `storage` | Content format                                                     |
+| `--type`    | `page`    | Content type — `page` (default) or `folder`. Folders have no body. |
+
 
 Either `--content` or `--file` is required for pages. Folders take no content — passing `--content` or `--file` with `--type folder` is rejected.
 
@@ -318,12 +338,14 @@ Update an existing page's title and/or content. At least one of `--title`, `--co
 confluence update <pageId> [--title <title>] [--content <string>] [--file <path>] [--format storage|html|markdown|adf]
 ```
 
-| Option | Default | Description |
-|---|---|---|
-| `--title` | — | New title |
-| `--content` | — | Inline content string |
-| `--file` | — | Path to content file |
-| `--format` | `storage` | Content format |
+
+| Option      | Default   | Description           |
+| ----------- | --------- | --------------------- |
+| `--title`   | —         | New title             |
+| `--content` | —         | Inline content string |
+| `--file`    | —         | Path to content file  |
+| `--format`  | `storage` | Content format        |
+
 
 ```sh
 confluence update 123456789 --title "New Title"
@@ -342,9 +364,11 @@ Move a page to a new parent. Both pages must be in the same space.
 confluence move <pageId_or_url> <newParentId_or_url> [--title <newTitle>]
 ```
 
-| Option | Description |
-|---|---|
+
+| Option    | Description                     |
+| --------- | ------------------------------- |
 | `--title` | Rename the page during the move |
+
 
 ```sh
 confluence move 123456789 987654321
@@ -361,9 +385,11 @@ Delete (trash) a page by ID or URL.
 confluence delete <pageIdOrUrl> [--yes]
 ```
 
-| Option | Description |
-|---|---|
+
+| Option  | Description                                                       |
+| ------- | ----------------------------------------------------------------- |
 | `--yes` | Skip confirmation prompt (required for non-interactive/agent use) |
+
 
 ```sh
 confluence delete 123456789 --yes
@@ -379,9 +405,11 @@ Fetch a page's raw storage-format content for editing locally.
 confluence edit <pageId> [--output <file>]
 ```
 
-| Option | Description |
-|---|---|
+
+| Option     | Description                                            |
+| ---------- | ------------------------------------------------------ |
 | `--output` | Save content to a file (instead of printing to stdout) |
+
 
 ```sh
 confluence edit 123456789 --output ./page.xml
@@ -399,15 +427,17 @@ Export a page and its attachments to a local directory.
 confluence export <pageId> [--format html|text|markdown] [--dest <directory>] [--file <filename>] [--attachments-dir <name>] [--pattern <glob>] [--referenced-only] [--skip-attachments]
 ```
 
-| Option | Default | Description |
-|---|---|---|
-| `--format` | `markdown` | Content format for the exported file |
-| `--dest` | `.` | Base directory to export into |
-| `--file` | `page.<ext>` | Filename for the content file |
-| `--attachments-dir` | `attachments` | Subdirectory name for attachments |
-| `--pattern` | — | Glob filter for attachments (e.g. `*.png`) |
-| `--referenced-only` | false | Only download attachments referenced in the page content |
-| `--skip-attachments` | false | Do not download attachments |
+
+| Option               | Default       | Description                                              |
+| -------------------- | ------------- | -------------------------------------------------------- |
+| `--format`           | `markdown`    | Content format for the exported file                     |
+| `--dest`             | `.`           | Base directory to export into                            |
+| `--file`             | `page.<ext>`  | Filename for the content file                            |
+| `--attachments-dir`  | `attachments` | Subdirectory name for attachments                        |
+| `--pattern`          | —             | Glob filter for attachments (e.g. `*.png`)               |
+| `--referenced-only`  | false         | Only download attachments referenced in the page content |
+| `--skip-attachments` | false         | Do not download attachments                              |
+
 
 ```sh
 confluence export 123456789 --format markdown --dest ./docs
@@ -427,12 +457,14 @@ List or download attachments for a page.
 confluence attachments <pageId> [--limit <n>] [--pattern <glob>] [--download] [--dest <directory>]
 ```
 
-| Option | Default | Description |
-|---|---|---|
-| `--limit` | all | Maximum number of attachments to fetch |
-| `--pattern` | — | Filter by filename glob (e.g. `*.pdf`) |
-| `--download` | false | Download matching attachments |
-| `--dest` | `.` | Directory to save downloads |
+
+| Option       | Default | Description                            |
+| ------------ | ------- | -------------------------------------- |
+| `--limit`    | all     | Maximum number of attachments to fetch |
+| `--pattern`  | —       | Filter by filename glob (e.g. `*.pdf`) |
+| `--download` | false   | Download matching attachments          |
+| `--dest`     | `.`     | Directory to save downloads            |
+
 
 ```sh
 confluence attachments 123456789
@@ -449,12 +481,14 @@ Upload one or more files to a page. `--file` can be repeated for multiple files.
 confluence attachment-upload <pageId> --file <path> [--file <path> ...] [--comment <text>] [--replace] [--minor-edit]
 ```
 
-| Option | Description |
-|---|---|
-| `--file` | File to upload (required, repeatable) |
-| `--comment` | Comment for the attachment(s) |
-| `--replace` | Replace an existing attachment with the same filename |
-| `--minor-edit` | Mark the upload as a minor edit |
+
+| Option         | Description                                           |
+| -------------- | ----------------------------------------------------- |
+| `--file`       | File to upload (required, repeatable)                 |
+| `--comment`    | Comment for the attachment(s)                         |
+| `--replace`    | Replace an existing attachment with the same filename |
+| `--minor-edit` | Mark the upload as a minor edit                       |
+
 
 ```sh
 confluence attachment-upload 123456789 --file ./report.pdf
@@ -471,9 +505,11 @@ Delete an attachment from a page.
 confluence attachment-delete <pageId> <attachmentId> [--yes]
 ```
 
-| Option | Description |
-|---|---|
+
+| Option  | Description              |
+| ------- | ------------------------ |
 | `--yes` | Skip confirmation prompt |
+
 
 ```sh
 confluence attachment-delete 123456789 att-987 --yes
@@ -489,14 +525,16 @@ List comments for a page.
 confluence comments <pageId> [--format text|markdown|json] [--limit <n>] [--start <n>] [--location inline,footer,resolved] [--depth all] [--all]
 ```
 
-| Option | Default | Description |
-|---|---|---|
-| `--format` | `text` | Output format: `text`, `markdown`, or `json` |
-| `--limit` | `25` | Maximum comments per page |
-| `--start` | `0` | Start index for pagination |
-| `--location` | — | Filter by location: `inline`, `footer`, `resolved` (comma-separated) |
-| `--depth` | — | Leave empty for root-only; `all` for all nested replies |
-| `--all` | false | Fetch all comments (ignores pagination) |
+
+| Option       | Default | Description                                                          |
+| ------------ | ------- | -------------------------------------------------------------------- |
+| `--format`   | `text`  | Output format: `text`, `markdown`, or `json`                         |
+| `--limit`    | `25`    | Maximum comments per page                                            |
+| `--start`    | `0`     | Start index for pagination                                           |
+| `--location` | —       | Filter by location: `inline`, `footer`, `resolved` (comma-separated) |
+| `--depth`    | —       | Leave empty for root-only; `all` for all nested replies              |
+| `--all`      | false   | Fetch all comments (ignores pagination)                              |
+
 
 ```sh
 confluence comments 123456789
@@ -514,17 +552,19 @@ Create a comment on a page (footer or inline).
 confluence comment <pageId> [--content <string>] [--file <path>] [--format storage|html|markdown] [--parent <commentId>] [--location footer|inline] [--inline-selection <text>] [--inline-original-selection <text>] [--inline-marker-ref <ref>] [--inline-properties <json>]
 ```
 
-| Option | Default | Description |
-|---|---|---|
-| `--content` | — | Inline content string |
-| `--file` | — | Path to content file |
-| `--format` | `storage` | Content format |
-| `--parent` | — | Reply to a comment by ID |
-| `--location` | `footer` | `footer` or `inline` |
-| `--inline-selection` | — | Highlighted selection text (inline only) |
-| `--inline-original-selection` | — | Original selection text (inline only) |
-| `--inline-marker-ref` | — | Marker reference (inline only) |
-| `--inline-properties` | — | Full inline properties as JSON (advanced) |
+
+| Option                        | Default   | Description                               |
+| ----------------------------- | --------- | ----------------------------------------- |
+| `--content`                   | —         | Inline content string                     |
+| `--file`                      | —         | Path to content file                      |
+| `--format`                    | `storage` | Content format                            |
+| `--parent`                    | —         | Reply to a comment by ID                  |
+| `--location`                  | `footer`  | `footer` or `inline`                      |
+| `--inline-selection`          | —         | Highlighted selection text (inline only)  |
+| `--inline-original-selection` | —         | Original selection text (inline only)     |
+| `--inline-marker-ref`         | —         | Marker reference (inline only)            |
+| `--inline-properties`         | —         | Full inline properties as JSON (advanced) |
+
 
 Either `--content` or `--file` is required.
 
@@ -545,9 +585,11 @@ Delete a comment by its ID.
 confluence comment-delete <commentId> [--yes]
 ```
 
-| Option | Description |
-|---|---|
+
+| Option  | Description              |
+| ------- | ------------------------ |
 | `--yes` | Skip confirmation prompt |
+
 
 ```sh
 confluence comment-delete 456789 --yes
@@ -563,15 +605,17 @@ Copy a page and all its children to a new location.
 confluence copy-tree <sourcePageId> <targetParentId> [newTitle] [--max-depth <depth>] [--exclude <patterns>] [--delay-ms <ms>] [--copy-suffix <suffix>] [--dry-run] [--fail-on-error] [--quiet]
 ```
 
-| Option | Default | Description |
-|---|---|---|
-| `--max-depth` | `10` | Maximum depth to copy |
-| `--exclude` | — | Comma-separated title patterns to exclude (supports wildcards) |
-| `--delay-ms` | `100` | Delay between sibling creations in ms |
-| `--copy-suffix` | `" (Copy)"` | Suffix appended to the root page title |
-| `--dry-run` | false | Preview operations without creating pages |
-| `--fail-on-error` | false | Exit with non-zero code if any page fails |
-| `--quiet` | false | Suppress progress output |
+
+| Option            | Default     | Description                                                    |
+| ----------------- | ----------- | -------------------------------------------------------------- |
+| `--max-depth`     | `10`        | Maximum depth to copy                                          |
+| `--exclude`       | —           | Comma-separated title patterns to exclude (supports wildcards) |
+| `--delay-ms`      | `100`       | Delay between sibling creations in ms                          |
+| `--copy-suffix`   | `" (Copy)"` | Suffix appended to the root page title                         |
+| `--dry-run`       | false       | Preview operations without creating pages                      |
+| `--fail-on-error` | false       | Exit with non-zero code if any page fails                      |
+| `--quiet`         | false       | Suppress progress output                                       |
+
 
 ```sh
 # Preview first
@@ -658,12 +702,14 @@ Convert between content formats locally without a Confluence server connection.
 confluence convert [--input-file <path>] [--output-file <path>] --input-format <format> --output-format <format>
 ```
 
-| Option | Default | Description |
-|---|---|---|
-| `--input-file`, `-i` | stdin | Input file path |
-| `--output-file`, `-o` | stdout | Output file path |
-| `--input-format` | — | Input format: `markdown`, `storage`, `html` (required) |
-| `--output-format` | — | Output format: `markdown`, `storage`, `html`, `text` (required) |
+
+| Option                | Default | Description                                                     |
+| --------------------- | ------- | --------------------------------------------------------------- |
+| `--input-file`, `-i`  | stdin   | Input file path                                                 |
+| `--output-file`, `-o` | stdout  | Output file path                                                |
+| `--input-format`      | —       | Input format: `markdown`, `storage`, `html` (required)          |
+| `--output-format`     | —       | Output format: `markdown`, `storage`, `html`, `text` (required) |
+
 
 Supported conversions: markdown→storage, markdown→html, markdown→text, html→storage, html→text, html→markdown, storage→markdown, storage→html, storage→text.
 
@@ -690,10 +736,12 @@ Copy the Claude Code skill documentation into your project's `.claude/skills/` d
 confluence install-skill [--dest <directory>] [--yes]
 ```
 
-| Option | Default | Description |
-|---|---|---|
-| `--dest` | `./.claude/skills/confluence` | Target directory |
-| `--yes` | false | Skip overwrite confirmation |
+
+| Option   | Default                       | Description                 |
+| -------- | ----------------------------- | --------------------------- |
+| `--dest` | `./.claude/skills/confluence` | Target directory            |
+| `--yes`  | false                         | Skip overwrite confirmation |
+
 
 ```sh
 confluence install-skill
@@ -781,13 +829,16 @@ confluence search --cql 'siteSearch ~ "release notes" and space = "MYSPACE"' --l
 
 ## Error Patterns
 
-| Error | Cause | Fix |
-|---|---|---|
-| `No configuration found` | No config file and no env vars set | Set env vars or run `confluence init` |
-| `Cross-space moves are not supported` | `move` used across spaces | Copy with `copy-tree` instead |
-| 400 on inline comment creation | Editor metadata required | Use `--location footer` or reply to existing inline comment with `--parent` |
-| `File not found: <path>` | `--file` path doesn't exist | Check the path before calling the command |
-| `At least one of --title, --file, or --content must be provided` | `update` called with no content options | Provide at least one of the required options |
-| `Profile "<name>" not found!` | Specified profile doesn't exist | Run `confluence profile list` to see available profiles |
-| `Cannot delete the only remaining profile.` | Tried to remove the last profile | Add another profile before removing |
-| `This profile is in read-only mode` | Write command used with a read-only profile | Use a writable profile or remove `readOnly` from config |
+
+| Error                                                            | Cause                                       | Fix                                                                         |
+| ---------------------------------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------- |
+| `No configuration found`                                         | No config file and no env vars set          | Set env vars or run `confluence init`                                       |
+| `Cross-space moves are not supported`                            | `move` used across spaces                   | Copy with `copy-tree` instead                                               |
+| 400 on inline comment creation                                   | Editor metadata required                    | Use `--location footer` or reply to existing inline comment with `--parent` |
+| `File not found: <path>`                                         | `--file` path doesn't exist                 | Check the path before calling the command                                   |
+| `At least one of --title, --file, or --content must be provided` | `update` called with no content options     | Provide at least one of the required options                                |
+| `Profile "<name>" not found!`                                    | Specified profile doesn't exist             | Run `confluence profile list` to see available profiles                     |
+| `Cannot delete the only remaining profile.`                      | Tried to remove the last profile            | Add another profile before removing                                         |
+| `This profile is in read-only mode`                              | Write command used with a read-only profile | Use a writable profile or remove `readOnly` from config                     |
+
+

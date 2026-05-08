@@ -1471,6 +1471,47 @@ describe('ConfluenceClient', () => {
       expect(spaces.map(s => s.key)).toEqual(['A', 'B', 'C']);
       mock.restore();
     });
+
+    test('uses Cloud REST v2 spaces endpoint for OAuth profiles', async () => {
+      const oauthClient = new ConfluenceClient({
+        domain: 'test.atlassian.net',
+        authType: 'oauth',
+        apiPath: '/wiki/rest/api',
+        oauth: {
+          accessToken: 'oauth-access',
+          cloudId: 'cloud-123',
+          siteUrl: 'https://test.atlassian.net',
+          expiresAt: Date.now() + 3600000
+        }
+      });
+      const mock = new MockAdapter(oauthClient.client);
+      const calls = [];
+
+      mock.onGet('https://api.atlassian.com/ex/confluence/cloud-123/wiki/api/v2/spaces').reply(config => {
+        calls.push({ ...config.params });
+        if (!config.params.cursor) {
+          return [200, {
+            results: [{ key: 'A', name: 'Alpha', type: 'global' }],
+            _links: { next: '/wiki/api/v2/spaces?cursor=next-token' }
+          }];
+        }
+        return [200, {
+          results: [{ key: 'B', name: 'Beta', type: 'global' }],
+          _links: {}
+        }];
+      });
+
+      const spaces = await oauthClient.getSpaces(null, { pageSize: 100 });
+      expect(calls).toEqual([
+        { limit: 100 },
+        { limit: 100, cursor: 'next-token' }
+      ]);
+      expect(spaces).toEqual([
+        { key: 'A', name: 'Alpha', type: 'global' },
+        { key: 'B', name: 'Beta', type: 'global' }
+      ]);
+      mock.restore();
+    });
   });
 
   describe('listSpaces', () => {
@@ -2834,6 +2875,114 @@ describe('ConfluenceClient', () => {
         'status'
       );
       expect(result).toEqual({ pageId: '789', key: 'status' });
+
+      mock.restore();
+    });
+  });
+
+  describe('OAuth Cloud REST v2 routing', () => {
+    function makeOAuthClient() {
+      return new ConfluenceClient({
+        domain: 'test.atlassian.net',
+        authType: 'oauth',
+        apiPath: '/wiki/rest/api',
+        oauth: {
+          accessToken: 'oauth-access',
+          cloudId: 'cloud-123',
+          siteUrl: 'https://test.atlassian.net',
+          expiresAt: Date.now() + 3600000
+        }
+      });
+    }
+
+    test('children, comments, attachments, properties, and versions use v2 endpoints', async () => {
+      const oauthClient = makeOAuthClient();
+      const mock = new MockAdapter(oauthClient.client);
+      const base = 'https://api.atlassian.com/ex/confluence/cloud-123/wiki/api/v2';
+
+      mock.onGet(`${base}/pages/123/children`).reply(200, {
+        results: [{ id: '200', title: 'Child', parentId: '123', spaceId: '456', version: { number: 1 } }],
+        _links: {}
+      });
+      mock.onGet(`${base}/pages/123/footer-comments`).reply(200, {
+        results: [{ id: '300', pageId: '123', body: { storage: { value: '<p>Hi</p>' } }, version: { number: 1, authorId: 'acct' } }],
+        _links: {}
+      });
+      mock.onGet(`${base}/pages/123/inline-comments`).reply(200, { results: [], _links: {} });
+      mock.onGet(`${base}/pages/123/attachments`).reply(200, {
+        results: [{ id: '400', title: 'file.txt', mediaType: 'text/plain', fileSize: 12, downloadLink: '/download/attachments/123/file.txt' }],
+        _links: {}
+      });
+      mock.onGet(`${base}/pages/123/properties`).reply(200, {
+        results: [{ id: '500', key: 'status', version: { number: 1 } }],
+        _links: {}
+      });
+      mock.onGet(`${base}/pages/123/versions`).reply(200, {
+        results: [{ number: 2, createdAt: '2026-01-01T00:00:00.000Z', authorId: 'acct', message: 'edit' }],
+        _links: {}
+      });
+
+      await expect(oauthClient.getChildPages('123')).resolves.toHaveLength(1);
+      await expect(oauthClient.listComments('123')).resolves.toMatchObject({ results: expect.any(Array) });
+      await expect(oauthClient.listAttachments('123')).resolves.toMatchObject({ results: expect.any(Array) });
+      await expect(oauthClient.listProperties('123')).resolves.toMatchObject({ results: expect.any(Array) });
+      await expect(oauthClient.listVersions('123')).resolves.toHaveLength(1);
+
+      mock.restore();
+    });
+
+    test('page create, update, move, delete, and content properties use v2 endpoints', async () => {
+      const oauthClient = makeOAuthClient();
+      const mock = new MockAdapter(oauthClient.client);
+      const base = 'https://api.atlassian.com/ex/confluence/cloud-123/wiki/api/v2';
+
+      mock.onGet(`${base}/spaces`).reply(200, { results: [{ id: '456', key: 'ENG' }] });
+      mock.onPost(`${base}/pages`).reply((config) => {
+        const body = JSON.parse(config.data);
+        expect(body.spaceId).toBe('456');
+        return [200, { id: '123', title: body.title, spaceId: '456', version: { number: 1 } }];
+      });
+      mock.onGet(`${base}/pages/123`).reply((config) => {
+        const bodyFormat = config.params?.['body-format'];
+        return [200, {
+          id: '123',
+          status: 'current',
+          title: 'Old',
+          spaceId: '456',
+          parentId: '111',
+          version: { number: 2 },
+          body: bodyFormat === 'storage' ? { storage: { value: '<p>Old</p>' } } : {}
+        }];
+      });
+      mock.onGet(`${base}/pages/999`).reply(200, {
+        id: '999',
+        status: 'current',
+        title: 'Parent',
+        spaceId: '456',
+        version: { number: 1 }
+      });
+      mock.onPut(`${base}/pages/123`).reply((config) => [200, JSON.parse(config.data)]);
+      mock.onDelete(`${base}/pages/123`).reply(204);
+      mock.onGet(`${base}/pages/123/properties`).reply(200, {
+        results: [{ id: '500', key: 'status', version: { number: 1 } }],
+        _links: {}
+      });
+      mock.onGet(`${base}/pages/123/properties/500`).reply(200, {
+        id: '500',
+        key: 'status',
+        value: 'green',
+        version: { number: 1 }
+      });
+      mock.onPut(`${base}/pages/123/properties/500`).reply((config) => [200, JSON.parse(config.data)]);
+      mock.onDelete(`${base}/pages/123/properties/500`).reply(204);
+
+      await expect(oauthClient.createPage('New', 'ENG', '# Hi', 'markdown')).resolves.toMatchObject({ id: '123' });
+      await expect(oauthClient.updatePage('123', 'Updated', '# Hi', 'markdown')).resolves.toMatchObject({ id: '123' });
+      await expect(oauthClient.movePage('123', '999')).resolves.toMatchObject({ id: '123' });
+      await expect(oauthClient.deletePage('123')).resolves.toEqual({ id: '123' });
+      await expect(oauthClient.getProperty('123', 'status')).resolves.toMatchObject({ key: 'status', value: 'green' });
+      await expect(oauthClient.setProperty('123', 'status', 'yellow')).resolves.toMatchObject({ key: 'status' });
+      await expect(oauthClient.deleteProperty('123', 'status')).resolves.toEqual({ pageId: '123', key: 'status' });
 
       mock.restore();
     });
